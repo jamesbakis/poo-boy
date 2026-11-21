@@ -47,29 +47,28 @@ POO_TYPES = {
 # With a jump/bounce height of ~182px:
 #   floor -> lane 1 (48) and lane 2 (115)        jump from the floor
 #   lane 1 (48) or lane 2 (115) -> lane 3 (205)  bounce needs 157 / 90
-#   lane 3 (205) -> lane 4 (360, gold)           bounce needs 155
-#   floor -> lane 3 needs 205 and lane 2 -> lane 4 needs 245, so neither works
+#   lane 3 (205) -> lane 4 (320, gold)           bounce needs 115
+#   floor -> lane 3 needs 205 and lane 2 -> lane 4 needs 205, so neither works
+# "points" is what a stomp is worth, multiplied by your current combo.
 LANES = [
-    {"land": 48,  "kind": "ground", "unlock": 0},
-    {"land": 115, "kind": "high",   "unlock": 12},
-    {"land": 205, "kind": "fly",    "unlock": 24},
-    {"land": 360, "kind": "gold",   "unlock": 36},
+    {"land": 48,  "kind": "ground", "unlock": 0,  "points": 100},
+    {"land": 115, "kind": "high",   "unlock": 12, "points": 130},
+    {"land": 205, "kind": "fly",    "unlock": 24, "points": 170},
+    {"land": 320, "kind": "gold",   "unlock": 36, "points": 300},
 ]
-GOLD_MULTIPLIER = 5
 
 START_SPEED_MIN, START_SPEED_MAX = 130.0, 230.0
-SPEED_GAIN_PER_SEC = 4.0  # the speed range rises this much every second
+SPEED_GAIN_PER_SEC = 2.0  # the speed range rises this much every second
 SPEED_CAP = 950.0
 START_SPAWN_INTERVAL = 1.4
 MIN_SPAWN_INTERVAL = 0.45
+SPAWN_SPEEDUP_PER_SEC = 0.006  # seconds shaved off the spawn gap every second
 
 START_LIVES = 3
 INVULN_TIME = 1.5
-BASE_POINTS = 10
 
 WHITE = (255, 255, 255)
 BLACK = (25, 25, 25)
-GOLD = (240, 190, 40)
 RED = (220, 50, 60)
 
 
@@ -149,12 +148,7 @@ class Poo:
             img.set_alpha(int(255 * t))
             screen.blit(img, (self.x - self.w * 0.15, self.y + self.h - h))
             return
-        bob = 0 if self.kind == "ground" else math.sin(self.anim * 6) * 2.5
-        if self.gold:
-            glow = pygame.Surface((self.w + 30, self.h + 30), pygame.SRCALPHA)
-            a = 60 + int(40 * math.sin(self.anim * 8))
-            pygame.draw.ellipse(glow, (255, 220, 80, a), glow.get_rect())
-            screen.blit(glow, (self.x - 15, self.y - 15 + bob))
+        bob = 0 if self.kind in ("ground", "gold") else math.sin(self.anim * 6) * 2.5
         screen.blit(frame, (self.x, self.y + bob))
 
 
@@ -279,7 +273,7 @@ class Game:
         return lo, hi
 
     def spawn_interval(self):
-        return max(MIN_SPAWN_INTERVAL, START_SPAWN_INTERVAL - self.elapsed * 0.012)
+        return max(MIN_SPAWN_INTERVAL, START_SPAWN_INTERVAL - self.elapsed * SPAWN_SPEEDUP_PER_SEC)
 
     def unlocked_lanes(self):
         return [lane for lane in LANES if self.elapsed >= lane["unlock"]]
@@ -396,13 +390,10 @@ class Game:
         p.jump_cut = False  # bounces always go full height
         self.combo += 1
         self.best_combo = max(self.best_combo, self.combo)
-        points = BASE_POINTS * self.combo * (GOLD_MULTIPLIER if poo.gold else 1)
+        points = poo.lane["points"] * self.combo
         self.score += points
-        if poo.gold:
-            color, label = GOLD, f"GOLD! +{points}"
-        else:
-            color = (255, 230, 80) if self.combo < 5 else (255, 140, 60) if self.combo < 10 else (255, 80, 200)
-            label = f"+{points}" if self.combo == 1 else f"+{points}  x{self.combo}!"
+        color = (255, 230, 80) if self.combo < 5 else (255, 140, 60) if self.combo < 10 else (255, 80, 200)
+        label = f"+{points}" if self.combo == 1 else f"+{points}  x{self.combo}!"
         self.popups.append(Popup(label, poo.x + poo.w / 2, poo.y - 30, color, self.font_med))
 
     def hurt(self):
@@ -470,7 +461,7 @@ class Game:
         lines = [
             "Bounce on the poos. Don't touch them from the side!",
             "Chain bounces without touching the floor for combos.",
-            "Higher poos join in as time goes on. The golden poo up top is worth 5x.",
+            "Higher poos join in as time goes on, and are worth more points.",
             "Arrows / A D to move  -  Space to jump",
         ]
         for i, line in enumerate(lines):
