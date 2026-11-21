@@ -348,19 +348,30 @@ class Game:
 
         for poo in self.poos:
             poo.update(dt)
-        for poo in self.poos:
-            if poo.squished > 0 or poo.dead:
-                continue
-            hb = poo.hitbox()
-            prect = p.rect()
-            if not prect.colliderect(hb):
-                continue
-            # stomp: falling, and our feet were above the poo's top last frame
-            if p.vy > 0 and prev_bottom <= hb.top + 12:
+        # 1) stomps: every poo we're landing on this frame (falling, feet were above its top
+        #    last frame). All of them get squished, so you can land on several at once.
+        live = [poo for poo in self.poos if poo.squished <= 0 and not poo.dead]
+        prect = p.rect()
+        stomped = [poo for poo in live if p.vy > 0 and prect.colliderect(poo.hitbox())
+                   and prev_bottom <= poo.hitbox().top + 12]
+        if stomped:
+            # also take any poo just below our feet (within 12px) so near-level poos count as "at once"
+            reach = prect.copy()
+            reach.height += 12
+            stomped += [poo for poo in live if poo not in stomped and reach.colliderect(poo.hitbox())
+                        and prev_bottom <= poo.hitbox().top + 12]
+            # lowest first so the combo climbs as it would landing on them one by one
+            for poo in sorted(stomped, key=lambda q: -q.hitbox().top):
                 self.stomp(poo)
-            elif p.invuln <= 0:
-                self.hurt()
-                break
+            # stand on the highest one before bouncing
+            p.y = min(q.hitbox().top for q in stomped) - PLAYER_SIZE
+        # 2) side hits: anything else we're still touching after the bounce
+        prect = p.rect()
+        if p.invuln <= 0:
+            for poo in live:
+                if poo not in stomped and prect.colliderect(poo.hitbox()):
+                    self.hurt()
+                    break
         self.poos = [x for x in self.poos if not x.dead]
 
         # ground
