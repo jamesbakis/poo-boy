@@ -12,6 +12,8 @@ network picks "Join a LAN game". Up to 4 players share the same poos; each has
 their own score, combo and lives, and the highest score wins.
 """
 
+import base64
+import io
 import math
 import os
 import random
@@ -21,11 +23,23 @@ import pygame
 
 import net
 
+FROZEN = getattr(sys, "frozen", False)  # True when running as a PyInstaller .exe
+if not FROZEN:
+    # Keep packed_assets.py in sync with the Assets folder (see pack_assets.py).
+    import pack_assets
+    pack_assets.update()
+try:
+    import packed_assets  # the images embedded as code, so every PyInstaller build includes them
+except ImportError:
+    packed_assets = None
+
 # --- Paths ------------------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SPRITE_DIR = os.path.join(BASE_DIR, "assets", "Sprites")
-BG_PATH = os.path.join(BASE_DIR, "assets", "Background", "background1.png")
-HIGHSCORE_FILE = os.path.join(BASE_DIR, "highscore.txt")
+ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+SPRITE_DIR = os.path.join(ASSETS_DIR, "Sprites")
+BG_PATH = os.path.join(ASSETS_DIR, "Background", "background1.png")
+# a .exe unpacks into a temporary folder that is deleted on exit, so keep the high score next to the .exe
+HIGHSCORE_FILE = os.path.join(os.path.dirname(sys.executable) if FROZEN else BASE_DIR, "highscore.txt")
 
 # --- Config -----------------------------------------------------------------
 BG_SCALE = 2.5                       # background1.png is 480x270
@@ -101,7 +115,14 @@ YELLOW = (255, 230, 80)
 
 # --- Asset loading ----------------------------------------------------------
 def load_image(path):
-    return pygame.image.load(path).convert_alpha()
+    if os.path.exists(path):
+        return pygame.image.load(path).convert_alpha()
+    # Not on disk (e.g. inside a .exe built without the Assets folder): use the embedded copy.
+    rel = os.path.relpath(path, ASSETS_DIR).replace(os.sep, "/")
+    data = packed_assets.FILES.get(rel) if packed_assets else None
+    if data is None:
+        raise FileNotFoundError(f"Missing image {path} (and no embedded copy of {rel!r})")
+    return pygame.image.load(io.BytesIO(base64.b64decode(data)), rel).convert_alpha()
 
 
 def crop_frames(sheet, frame_count, frame_w=None):
