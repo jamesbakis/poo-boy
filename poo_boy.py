@@ -67,9 +67,17 @@ LANES = [
 START_SPEED_MIN, START_SPEED_MAX = 130.0, 230.0
 SPEED_GAIN_PER_SEC = 2.0  # the speed range rises this much every second
 SPEED_CAP = 950.0
+SPEED_TAPER_START = 350.0   # once the average speed (the HUD "Speed") passes this, it rises more and more slowly
+SPEED_TAPER_SOFTNESS = 100.0  # bigger = gentler taper
 START_SPAWN_INTERVAL = 1.4
 MIN_SPAWN_INTERVAL = 0.45
 SPAWN_SPEEDUP_PER_SEC = 0.006  # seconds shaved off the spawn gap every second
+# Extra spawner for the bottom two lanes, so there are more stepping stones up to lane 3.
+# It starts when lane 3 unlocks and its gap shrinks faster than the main spawner's.
+LOW_LANE_COUNT = 2
+LOW_START_INTERVAL = 4.0
+LOW_MIN_INTERVAL = 1.5
+LOW_SPEEDUP_PER_SEC = 0.015
 
 START_LIVES = 3
 INVULN_TIME = 1.5
@@ -331,6 +339,7 @@ class Game:
         self.events = []  # things the host tells clients about (popups, hits)
         self.elapsed = 0.0
         self.spawn_timer = 0.5
+        self.low_timer = 1.0
         self.shake = 0.0
         self.next_poo_id = 0
         self.players.sort(key=lambda p: p.pid)
@@ -353,18 +362,28 @@ class Game:
     # --- difficulty ------------------------------------------------------------
     def speed_range(self):
         gain = SPEED_GAIN_PER_SEC * self.elapsed
-        lo = min(SPEED_CAP * 0.7, START_SPEED_MIN + gain)
-        hi = min(SPEED_CAP, START_SPEED_MAX + gain * 1.3)
-        return lo, hi
+        lo = START_SPEED_MIN + gain
+        hi = START_SPEED_MAX + gain * 1.3
+        mid = (lo + hi) / 2
+        if mid > SPEED_TAPER_START:
+            # past the taper point, extra speed only grows logarithmically
+            excess = mid - SPEED_TAPER_START
+            tapered = SPEED_TAPER_START + SPEED_TAPER_SOFTNESS * math.log1p(excess / SPEED_TAPER_SOFTNESS)
+            lo, hi = lo * tapered / mid, hi * tapered / mid
+        return min(SPEED_CAP * 0.7, lo), min(SPEED_CAP, hi)
 
     def spawn_interval(self):
         return max(MIN_SPAWN_INTERVAL, START_SPAWN_INTERVAL - self.elapsed * SPAWN_SPEEDUP_PER_SEC)
 
+    def low_lane_interval(self):
+        since = self.elapsed - LANES[LOW_LANE_COUNT]["unlock"]
+        return max(LOW_MIN_INTERVAL, LOW_START_INTERVAL - since * LOW_SPEEDUP_PER_SEC)
+
     def unlocked_lanes(self):
         return [lane for lane in LANES if self.elapsed >= lane["unlock"]]
 
-    def spawn_poo(self):
-        lane = random.choice(self.unlocked_lanes())
+    def spawn_poo(self, lane=None):
+        lane = lane or random.choice(self.unlocked_lanes())
         from_left = random.random() < 0.5
         # don't spawn on top of a poo that has only just entered the same lane from the same side
         for p in self.poos:
@@ -677,6 +696,12 @@ class Game:
         if self.spawn_timer <= 0:
             self.spawn_poo()
             self.spawn_timer = self.spawn_interval() * random.uniform(0.6, 1.3)
+
+        if self.elapsed >= LANES[LOW_LANE_COUNT]["unlock"]:
+            self.low_timer -= dt
+            if self.low_timer <= 0:
+                self.spawn_poo(random.choice(LANES[:LOW_LANE_COUNT]))
+                self.low_timer = self.low_lane_interval() * random.uniform(0.7, 1.3)
 
         alive = [p for p in self.players if p.alive]
         for p in alive:
