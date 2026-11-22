@@ -1,4 +1,5 @@
 # poo-boy
+Remake of the game Poo Boy created by James Bakis and Jacob Bell using claude code
 
 Sprites Created by Jacob Bell
 ## Play
